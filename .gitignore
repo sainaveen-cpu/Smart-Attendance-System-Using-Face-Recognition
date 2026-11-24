@@ -1,24 +1,166 @@
-# Compiled class file
-*.class
 
-# Log file
-*.log
+import org.opencv.core.*;
+import org.opencv.videoio.VideoCapture;
+import org.opencv.videoio.Videoio;
+import org.opencv.imgproc.Imgproc;
+import org.opencv.imgcodecs.Imgcodecs;
+import org.opencv.objdetect.CascadeClassifier;
+import org.opencv.face.LBPHFaceRecognizer;
+import org.opencv.highgui.HighGui;
 
-# BlueJ files
-*.ctxt
+import java.io.*;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
 
-# Mobile Tools for Java (J2ME)
-.mtj.tmp/
+public class SmartAttendance {
 
-# Package Files #
-*.jar
-*.war
-*.nar
-*.ear
-*.zip
-*.tar.gz
-*.rar
+    static {
+        System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
+    }
 
-# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
-hs_err_pid*
-replay_pid*
+    static Set<String> marked = new HashSet<>();
+
+    static String getStudentName(int id) {
+        Map<Integer, String> students = new HashMap<>();
+        students.put(1, "Sai Naveen");
+        students.put(2, "Student 2");
+        students.put(3, "Student 3");
+
+        return students.getOrDefault(id, "Unknown");
+    }
+
+    static void markAttendance(String name) {
+
+        String today = LocalDate.now().toString();
+
+        if (name.equals("Unknown")) return;
+
+        if (marked.contains(name)) return;
+
+        File file = new File("attendance");
+        file.mkdirs();
+
+        File csv = new File(
+            "attendance/attendance.csv"
+        );
+
+        try {
+            boolean exists = csv.exists();
+
+            try (FileWriter fw = new FileWriter(csv, true)) {
+
+                if (!exists) {
+                    fw.write("Name,Date,Time\n");
+                }
+
+                String time = LocalDateTime.now()
+                    .format(DateTimeFormatter.ofPattern("HH:mm:ss"));
+
+                fw.write(name + "," + today + "," + time + "\n");
+
+                marked.add(name);
+
+                System.out.println(
+                    "Attendance marked: " + name
+                );
+            }
+
+        } catch (IOException e) {
+            System.out.println(e.getMessage());
+        }
+    }
+
+    public static void main(String[] args) {
+
+        CascadeClassifier detector =
+            new CascadeClassifier(
+                "models/haarcascade_frontalface_default.xml"
+            );
+
+        LBPHFaceRecognizer recognizer =
+            LBPHFaceRecognizer.create();
+
+        recognizer.read("models/face_model.yml");
+
+        VideoCapture camera = new VideoCapture(0);
+
+        if (!camera.isOpened()) {
+            System.out.println("Camera not found!");
+            return;
+        }
+
+        camera.set(Videoio.CAP_PROP_FRAME_WIDTH, 640);
+        camera.set(Videoio.CAP_PROP_FRAME_HEIGHT, 480);
+
+        Mat frame = new Mat();
+
+        while (camera.read(frame)) {
+
+            Mat gray = new Mat();
+
+            Imgproc.cvtColor(
+                frame, gray, Imgproc.COLOR_BGR2GRAY
+            );
+
+            MatOfRect faces = new MatOfRect();
+
+            detector.detectMultiScale(gray, faces);
+
+            for (Rect rect : faces.toArray()) {
+
+                Mat face = new Mat(gray, rect);
+                Mat resized = new Mat();
+
+                Imgproc.resize(
+                    face, resized, new Size(200, 200)
+                );
+
+                int[] label = new int[1];
+                double[] confidence = new double[1];
+
+                recognizer.predict(
+                    resized, label, confidence
+                );
+
+                String name = "Unknown";
+
+                // Lower LBPH distance means a better match.
+                if (confidence[0] < 70) {
+                    name = getStudentName(label[0]);
+                    markAttendance(name);
+                }
+
+                Imgproc.rectangle(
+                    frame,
+                    rect,
+                    new Scalar(0, 255, 0),
+                    2
+                );
+
+                Imgproc.putText(
+                    frame,
+                    name,
+                    new Point(rect.x, rect.y - 10),
+                    Imgproc.FONT_HERSHEY_SIMPLEX,
+                    0.8,
+                    new Scalar(0, 255, 0),
+                    2
+                );
+            }
+
+            HighGui.imshow(
+                "Smart Attendance System", frame
+            );
+
+            if (HighGui.waitKey(10) == 'q') {
+                break;
+            }
+        }
+
+        camera.release();
+        HighGui.destroyAllWindows();
+    }
+}
+
